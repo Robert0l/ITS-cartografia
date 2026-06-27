@@ -2,6 +2,8 @@
 
 Sistema Tutor Inteligente para ensino de Cartografia, baseado no capítulo 5 de *Conexões: Estudos de Geografia Geral e do Brasil* (Terra, Araújo e Guimarães, 2015).
 
+**Documentação completa do projeto** (domínio, grafo, modelo do aluno, inspirações teóricas e guia de instalação no Windows): [DOCUMENTACAO.md](DOCUMENTACAO.md)
+
 ## Arquitetura
 
 ```
