@@ -1,0 +1,34 @@
+#### Testes de diálogo (rasa test) — políticas e rules
+#### Executar: docker compose run --rm rasa-test
+
+version: "3.1"
+
+stories:
+  - story: test pós-diagnóstico — orientação
+    steps:
+      - slot_was_set:
+          - diagnostic_completed: true
+      - intent: ask_what_to_do
+      - action: action_explain_what_to_do
+
+  - story: test pós-diagnóstico — escolher tema
+    steps:
+      - slot_was_set:
+          - diagnostic_completed: true
+      - intent: choose_topic
+      - action: action_start_topic_study
+
+  - story: test pós-diagnóstico — aceitar recomendação
+    steps:
+      - slot_was_set:
+          - diagnostic_completed: true
+          - study_suggestion_pending: true
+      - intent: affirm
+      - action: action_start_topic_study
+
+  - story: test ajuda em tópico
+    steps:
+      - slot_was_set:
+          - diagnostic_completed: true
+      - intent: ask_cartography_help
+      - action: action_topic_help

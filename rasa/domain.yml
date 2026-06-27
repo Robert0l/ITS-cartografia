@@ -1,0 +1,161 @@
+version: "3.1"
+
+intents:
+  - greet
+  - goodbye
+  - affirm
+  - deny
+  - start_diagnostic
+  - diagnostic_answer
+  - ask_cartography_help
+  - inform_wrong_scale_calculation
+  - inform_correct_answer
+  - ask_about_scale
+  - ask_what_to_do
+  - choose_topic
+  - inform_study_reflection
+  - nlu_fallback
+
+entities:
+  - topic
+  - scale_answer
+
+slots:
+  tracer_state:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: custom
+
+  diagnostic_index:
+    type: float
+    initial_value: 0
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  diagnostic_answer:
+    type: text
+    influence_conversation: true
+    mappings:
+      - type: from_text
+        conditions:
+          - active_loop: diagnostic_form
+
+  diagnostic_answers:
+    type: text
+    initial_value: "[]"
+    influence_conversation: false
+    mappings:
+      - type: custom
+
+  diagnostic_completed:
+    type: bool
+    initial_value: false
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  diagnostic_invitation_pending:
+    type: bool
+    initial_value: false
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  scale_reflection_pending:
+    type: bool
+    initial_value: false
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  last_topic:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: custom
+
+  pending_correct:
+    type: bool
+    influence_conversation: false
+    mappings:
+      - type: custom
+
+  topic:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: topic
+
+  active_study_topic:
+    type: text
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  study_suggestion_pending:
+    type: bool
+    initial_value: false
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+forms:
+  diagnostic_form:
+    required_slots:
+      - diagnostic_answer
+
+responses:
+  utter_greet:
+    - text: "Olá! Sou o tutor de Cartografia do ITS. Vamos explorar mapas, coordenadas e escalas juntos?"
+    - text: "Bem-vindo! Estou aqui para apoiar seu estudo de Cartografia com perguntas que ajudam você a pensar."
+
+  utter_goodbye:
+    - text: "Até logo! Continue observando mapas no dia a dia."
+    - text: "Tchau! Volte quando quiser retomar seus estudos."
+
+  utter_ask_start_diagnostic:
+    - text: "Antes de começarmos, gostaria de aplicar um questionário rápido de 10 perguntas para entender seu ponto de partida. Posso iniciar?"
+
+  utter_diagnostic_complete:
+    - text: "Perfeito! Calibrei seu perfil de domínio. Agora podemos focar nos tópicos que mais precisam de atenção."
+
+  utter_ask_diagnostic_answer:
+    - text: "Escolha ou digite sua resposta para a pergunta acima."
+
+  utter_reflective_scale_question:
+    - text: "Interessante. Antes de eu comentar, me diga: se 1 cm no mapa representa 500 m na realidade, o que acontece com a distância real quando você dobra a medida no mapa? O que a escala 1:50.000 nos diz sobre essa relação?"
+
+  utter_scale_hint_after_reflection:
+    - text: "Pense na escala como uma razão: cada unidade no mapa multiplica por 50.000 para obter a distância real. Que passos você usou para chegar ao seu resultado?"
+
+  utter_ask_rephrase:
+    - text: "Não entendi bem. Pode reformular sua resposta?"
+
+  utter_default:
+    - text: "Hmm, não captei. Pode explicar de outro jeito?"
+
+  utter_study_topic_hint:
+    - text: "Compartilhe sua opinião com suas palavras. Depois da sua resposta, explico o conceito de forma didática e conecto com o que você disse."
+
+actions:
+  - action_greet
+  - action_start_diagnostic
+  - action_send_cognitive_state
+  - action_update_mastery
+  - action_ask_diagnostic_answer
+  - action_calibrate_from_diagnostic
+  - action_reflective_scale_prompt
+  - action_scale_hint_after_reflection
+  - action_suggest_next_steps
+  - action_explain_what_to_do
+  - action_start_topic_study
+  - action_topic_help
+  - action_handle_study_reflection
+  - validate_diagnostic_form
+
+session_config:
+  session_expiration_time: 60
+  carry_over_slots_to_new_session: true

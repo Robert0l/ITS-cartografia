@@ -1,0 +1,173 @@
+version: "3.1"
+
+rules:
+  - rule: Saudação
+    steps:
+      - intent: greet
+      - action: action_greet
+
+  - rule: Despedida
+    steps:
+      - intent: goodbye
+      - action: utter_goodbye
+
+  - rule: Iniciar formulário diagnóstico (cold start)
+    steps:
+      - intent: start_diagnostic
+      - action: action_start_diagnostic
+
+  - rule: Aceitar diagnóstico após convite
+    condition:
+      - slot_was_set:
+          - diagnostic_invitation_pending: true
+    steps:
+      - intent: affirm
+      - action: action_start_diagnostic
+
+  - rule: Confirmar reflexão de escala (APT)
+    condition:
+      - slot_was_set:
+          - scale_reflection_pending: true
+    steps:
+      - intent: affirm
+      - action: action_update_mastery
+
+  - rule: Aceitar tema recomendado após diagnóstico
+    condition:
+      - slot_was_set:
+          - diagnostic_completed: true
+          - study_suggestion_pending: true
+    steps:
+      - intent: affirm
+      - action: action_start_topic_study
+
+  - rule: Submeter resposta diagnóstica
+    condition:
+      - active_loop: diagnostic_form
+    steps:
+      - intent: diagnostic_answer
+      - action: diagnostic_form
+      - active_loop: diagnostic_form
+
+  - rule: Finalizar diagnóstico quando form completo
+    condition:
+      - active_loop: diagnostic_form
+    steps:
+      - action: diagnostic_form
+      - active_loop: null
+      - action: action_calibrate_from_diagnostic
+      - action: action_suggest_next_steps
+
+  - rule: Resposta reflexiva durante estudo ativo
+    condition:
+      - slot_was_set:
+          - active_study_topic
+    steps:
+      - intent: inform_study_reflection
+      - action: action_handle_study_reflection
+
+  - rule: Texto livre durante estudo ativo
+    condition:
+      - slot_was_set:
+          - active_study_topic
+    steps:
+      - intent: nlu_fallback
+      - action: action_handle_study_reflection
+
+  - rule: Confirmou entendimento durante estudo
+    condition:
+      - slot_was_set:
+          - active_study_topic
+    steps:
+      - intent: affirm
+      - action: action_handle_study_reflection
+
+  - rule: Ainda com dúvida durante estudo
+    condition:
+      - slot_was_set:
+          - active_study_topic
+    steps:
+      - intent: deny
+      - action: action_handle_study_reflection
+
+  - rule: Acerto declarado durante estudo
+    condition:
+      - slot_was_set:
+          - active_study_topic
+    steps:
+      - intent: inform_correct_answer
+      - action: action_handle_study_reflection
+
+  - rule: Dúvida sobre como continuar (pós-diagnóstico)
+    condition:
+      - slot_was_set:
+          - diagnostic_completed: true
+    steps:
+      - intent: ask_what_to_do
+      - action: action_explain_what_to_do
+
+  - rule: Dúvida sobre como continuar (antes do diagnóstico)
+    condition:
+      - slot_was_set:
+          - diagnostic_completed: false
+    steps:
+      - intent: ask_what_to_do
+      - action: action_explain_what_to_do
+
+  - rule: Escolher tópico para estudar
+    condition:
+      - slot_was_set:
+          - diagnostic_completed: true
+    steps:
+      - intent: choose_topic
+      - action: action_start_topic_study
+
+  - rule: Ajuda sobre conceito de cartografia
+    condition:
+      - slot_was_set:
+          - diagnostic_completed: true
+    steps:
+      - intent: ask_cartography_help
+      - action: action_topic_help
+
+  - rule: Ajuda sobre escala (pós-diagnóstico)
+    condition:
+      - slot_was_set:
+          - diagnostic_completed: true
+    steps:
+      - intent: ask_about_scale
+      - action: action_topic_help
+
+  - rule: APT — erro em cálculo de escala (Academically Productive Talk)
+    steps:
+      - intent: inform_wrong_scale_calculation
+      - action: action_reflective_scale_prompt
+      - action: action_update_mastery
+      - action: action_scale_hint_after_reflection
+
+  - rule: Acerto em exercício — atualizar mastery
+    steps:
+      - intent: inform_correct_answer
+      - action: action_update_mastery
+      - action: action_send_cognitive_state
+
+  - rule: Reflexão sobre tópico após diagnóstico (sem estudo ativo)
+    condition:
+      - slot_was_set:
+          - diagnostic_completed: true
+    steps:
+      - intent: inform_study_reflection
+      - action: action_handle_study_reflection
+
+  - rule: Fallback NLU após diagnóstico
+    condition:
+      - slot_was_set:
+          - diagnostic_completed: true
+    steps:
+      - intent: nlu_fallback
+      - action: action_explain_what_to_do
+
+  - rule: Fallback NLU
+    steps:
+      - intent: nlu_fallback
+      - action: utter_default

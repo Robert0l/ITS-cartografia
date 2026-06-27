@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Rasa — cache de treino (não versionar)
+rasa/.rasa/
+
+# Modelo treinado (opcional: remova esta linha se quiser versionar o .tar.gz)
+rasa/models/*.tar.gz
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Segredos
+.env
+*.pem
+credentials.local.yml

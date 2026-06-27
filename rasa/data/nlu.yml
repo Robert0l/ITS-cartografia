@@ -1,0 +1,176 @@
+version: "3.1"
+
+nlu:
+  - intent: greet
+    examples: |
+      - oi
+      - olá
+      - bom dia
+      - boa tarde
+      - hey
+      - e aí
+
+  - intent: goodbye
+    examples: |
+      - tchau
+      - até logo
+      - adeus
+      - até mais
+      - falou
+
+  - intent: affirm
+    examples: |
+      - sim
+      - claro
+      - com certeza
+      - pode ser
+      - ok
+      - vamos
+      - entendi
+      - consegui entender
+      - ficou claro
+
+  - intent: deny
+    examples: |
+      - não
+      - agora não
+      - depois
+      - negativo
+      - não sei
+      - nao sei
+      - não entendi
+      - nao entendi
+      - sem ideia
+
+  - intent: start_diagnostic
+    examples: |
+      - quero fazer o diagnóstico
+      - iniciar questionário
+      - começar avaliação inicial
+      - aplicar teste diagnóstico
+      - cold start
+      - questionário de 10 perguntas
+
+  - intent: diagnostic_answer
+    examples: |
+      - [Representação reduzida da superfície terrestre](diagnostic_answer)
+      - [Representar fenômenos espaciais](diagnostic_answer)
+      - [Sistema de localização por latitude e longitude](diagnostic_answer)
+      - [Equador](diagnostic_answer)
+      - [Legenda](diagnostic_answer)
+      - [Segmento de reta que relaciona distâncias no mapa e na realidade](diagnostic_answer)
+      - [500 metros](diagnostic_answer)
+      - [1:500.000](diagnostic_answer)
+      - [Representar a superfície curva da Terra em plano](diagnostic_answer)
+      - [Inclinação do relevo](diagnostic_answer)
+      - a resposta é [escala gráfica](diagnostic_answer)
+
+  - intent: ask_what_to_do
+    examples: |
+      - não entendi o que preciso fazer agora
+      - o que preciso fazer agora
+      - o que faço agora
+      - como continuar
+      - e agora o que faço
+      - não sei o que fazer
+      - me ajuda a entender o próximo passo
+      - o que fazer depois do diagnóstico
+      - como seguir daqui
+      - estou perdido
+      - não entendi como funciona
+      - quais são os próximos passos
+      - o que devo fazer a seguir
+
+  - intent: choose_topic
+    examples: |
+      - quero estudar [escala_grafica](topic)
+      - vamos para [coordenadas_geograficas](topic)
+      - quero aprender [elementos_mapa](topic)
+      - focar em [calculo_escala](topic)
+      - começar por [introducao](topic)
+      - estudar [projecoes](topic)
+      - quero revisar [interpretacao_mapa](topic)
+      - vamos estudar escala
+      - quero estudar escala gráfica
+      - quero estudar projeções
+      - quero aprender coordenadas
+      - estudar elementos do mapa
+      - começar pelo tema recomendado
+      - seguir com o tema sugerido
+
+  - intent: inform_study_reflection
+    examples: |
+      - tentaria explicar como funciona para 1 cm que representa 500m
+      - usaria um exemplo com 1 cm para facilitar a visualização
+      - compararia a distância no mapa com a distância real
+      - penso que a escala é uma proporção entre mapa e terreno
+      - dobrar a medida no mapa dobra na realidade
+      - usaria um segmento de reta para mostrar a relação
+      - explicaria que cada centímetro representa uma distância fixa
+      - a legenda ajuda a entender os símbolos do mapa
+      - a latitude mede a distância do equador
+      - as curvas de nível próximas indicam relevo íngreme
+      - minha ideia é usar uma razão entre as distâncias
+      - eu diria que o mapa simplifica o espaço real
+      - penso que não dá representar a Terra sem distorcer
+      - porque a terra é uma esfera e não conseguimos transformar em duas dimensões sem distorção
+      - no caso o norte magnético é o sul verdadeiro
+      - a bússola aponta para o norte magnético que é diferente do norte verdadeiro
+      - o norte magnético desvia do norte geográfico
+
+  - intent: ask_cartography_help
+    examples: |
+      - o que é cartografia?
+      - me ajuda com mapas
+      - explique coordenadas
+      - como ler um mapa?
+      - tenho dúvida sobre [escala_grafica](topic)
+      - tenho dúvida sobre escala gráfica
+      - tenho dúvida sobre [projecoes](topic)
+      - tenho dúvida sobre projeções cartográficas
+      - tenho dúvida sobre [coordenadas_geograficas](topic)
+      - tenho dúvida sobre coordenadas geográficas
+      - tenho dúvida sobre [interpretacao_mapa](topic)
+      - tenho dúvida sobre interpretação de mapas
+      - não entendi [calculo_escala](topic)
+      - não entendi escala gráfica
+      - não entendi escala
+
+  - intent: inform_wrong_scale_calculation
+    examples: |
+      - calculei a escala e deu [1:50.000](scale_answer)
+      - acho que a escala é [1:5.000](scale_answer)
+      - errei o cálculo de escala, deu [2 cm para 10 km](scale_answer)
+      - minha resposta de escala está [errada](scale_answer)
+      - fiz a conta da escala e não bateu
+
+  - intent: inform_correct_answer
+    examples: |
+      - acertei a escala [1:500.000](scale_answer)
+      - a resposta correta é [500 metros](scale_answer)
+      - consegui calcular certo
+
+  - intent: ask_about_scale
+    examples: |
+      - o que é escala numérica?
+      - como calcular escala?
+      - me explica escala gráfica
+      - diferença entre escala gráfica e numérica
+
+  - intent: nlu_fallback
+    examples: |
+      - asdfgh
+      - xyz123
+      - não sei o que dizer
+
+  - lookup: topic
+    examples: |
+      - introducao
+      - coordenadas_geograficas
+      - elementos_mapa
+      - escala_grafica
+      - escala_numerica
+      - calculo_escala
+      - projecoes
+      - orientacao
+      - interpretacao_mapa

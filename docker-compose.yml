@@ -1,0 +1,53 @@
+services:
+  rasa:
+    image: rasa/rasa:3.6.20-full
+    ports:
+      - "5005:5005"
+    volumes:
+      - ./rasa:/app
+    command: >
+      run
+      --enable-api
+      --cors "*"
+      --debug
+    depends_on:
+      - action-server
+    networks:
+      - its-network
+
+  action-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.action-server
+    ports:
+      - "5055:5055"
+    volumes:
+      - ./rasa/actions:/app/actions
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - its-network
+
+  rasa-train:
+    image: rasa/rasa:3.6.20-full
+    profiles:
+      - train
+    volumes:
+      - ./rasa:/app
+    command: train --fixed-model-name its-cartografia
+    networks:
+      - its-network
+
+  rasa-test:
+    image: rasa/rasa:3.6.20-full
+    profiles:
+      - test
+    volumes:
+      - ./rasa:/app
+    command: test --fail-on-warning
+    networks:
+      - its-network
+
+networks:
+  its-network:
+    driver: bridge

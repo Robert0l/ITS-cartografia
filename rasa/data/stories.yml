@@ -1,0 +1,39 @@
+version: "3.1"
+
+stories:
+  - story: Cold start completo — 10 perguntas diagnósticas
+    steps:
+      - intent: start_diagnostic
+      - action: action_start_diagnostic
+      - intent: diagnostic_answer
+      - action: diagnostic_form
+      - active_loop: null
+      - action: action_calibrate_from_diagnostic
+      - action: action_suggest_next_steps
+
+  - story: Pós-diagnóstico — aluno aceita tema recomendado
+    steps:
+      - intent: affirm
+      - action: action_start_topic_study
+
+  - story: Pós-diagnóstico — aluno pergunta o que fazer
+    steps:
+      - intent: ask_what_to_do
+      - action: action_explain_what_to_do
+      - intent: choose_topic
+      - action: action_start_topic_study
+
+  - story: Pós-diagnóstico — resposta reflexiva no estudo
+    steps:
+      - slot_was_set:
+          - active_study_topic: escala_grafica
+      - intent: inform_study_reflection
+      - action: action_handle_study_reflection
+
+  - story: Aluno acerta exercício de escala
+    steps:
+      - intent: ask_about_scale
+      - action: utter_ask_rephrase
+      - intent: inform_correct_answer
+      - action: action_update_mastery
+      - action: action_send_cognitive_state
