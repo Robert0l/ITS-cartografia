@@ -14,6 +14,7 @@ intents:
   - ask_what_to_do
   - choose_topic
   - inform_study_reflection
+  - inform_followup_answer
   - nlu_fallback
 
 entities:
@@ -102,6 +103,26 @@ slots:
     mappings:
       - type: custom
 
+  diagnostic_layout:
+    type: text
+    initial_value: "{}"
+    influence_conversation: false
+    mappings:
+      - type: custom
+
+  study_followup_pending:
+    type: bool
+    initial_value: false
+    influence_conversation: true
+    mappings:
+      - type: custom
+
+  study_followup_question:
+    type: text
+    influence_conversation: true
+    mappings:
+      - type: custom
+
 forms:
   diagnostic_form:
     required_slots:
@@ -154,6 +175,7 @@ actions:
   - action_start_topic_study
   - action_topic_help
   - action_handle_study_reflection
+  - action_handle_fallback
   - validate_diagnostic_form
 
 session_config:

@@ -97,6 +97,11 @@ nlu:
       - estudar elementos do mapa
       - começar pelo tema recomendado
       - seguir com o tema sugerido
+      - vamos começar por escala numérica
+      - vamos começar por [escala_numerica](topic)
+      - começar por escala numérica
+      - vamos começar por elementos do mapa
+      - vamos começar por orientação
 
   - intent: inform_study_reflection
     examples: |
@@ -117,6 +122,31 @@ nlu:
       - no caso o norte magnético é o sul verdadeiro
       - a bússola aponta para o norte magnético que é diferente do norte verdadeiro
       - o norte magnético desvia do norte geográfico
+      - equivale a 50000 cm na realidade usando a proporção 1:50000
+      - multiplico 1 cm por 50000 para converter na escala numérica
+      - 1500 metros
+      - 3 cm equivalem a 1500 metros
+      - são 1500 m na realidade
+
+  - intent: inform_followup_answer
+    examples: |
+      - a legenda
+      - A legenda
+      - legenda
+      - eu consultaria a legenda
+      - consultaria a legenda
+      - na legenda
+      - a legenda explica as cores
+      - hemisfério sul
+      - hemisferio sul
+      - sul
+      - 1500 metros
+      - 1500 m
+      - 1,5 km
+      - 2000 metros
+      - 2 km
+      - o titulo
+      - a escala
 
   - intent: ask_cartography_help
     examples: |

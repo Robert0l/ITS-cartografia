@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Text
+import random
+import re
+from typing import Any, Dict, List, Text, Tuple
 
 from rasa_sdk import Action, Tracker
 from rasa_sdk.events import ActiveLoop, SlotSet
@@ -28,6 +30,9 @@ SLOT_DIAGNOSTIC_INVITATION_PENDING = "diagnostic_invitation_pending"
 SLOT_SCALE_REFLECTION_PENDING = "scale_reflection_pending"
 SLOT_STUDY_SUGGESTION_PENDING = "study_suggestion_pending"
 SLOT_ACTIVE_STUDY_TOPIC = "active_study_topic"
+SLOT_DIAGNOSTIC_LAYOUT = "diagnostic_layout"
+SLOT_STUDY_FOLLOWUP_PENDING = "study_followup_pending"
+SLOT_STUDY_FOLLOWUP_QUESTION = "study_followup_question"
 
 DIAGNOSTIC_QUESTIONS: List[Dict[str, str]] = [
     {
@@ -253,6 +258,19 @@ TOPIC_TEACHING: Dict[str, Dict[str, Any]] = {
         "signals_strong": ("equador", "latitude", "longitude", "hemisf", "norte", "sul", "meridiano", "positiv", "negativ"),
         "signals_partial": ("coordenad", "localiz", "graus"),
         "follow_up": "Um ponto em 23°S está no hemisfério norte ou sul? Por quê?",
+        "follow_up_checks": [
+            {
+                "match": "23",
+                "accept_keywords": ("hemisferio sul", "hemisfério sul", "sul", "ao sul"),
+                "reject_keywords": ("norte", "hemisferio norte", "hemisfério norte"),
+                "correct_msg": (
+                    "Correto: **23°S** está ao **sul** do Equador, no **hemisfério sul**."
+                ),
+                "wrong_msg": (
+                    "O **S** em 23°S indica latitude **sul** do Equador — portanto, hemisfério **sul**."
+                ),
+            },
+        ],
     },
     "elementos_mapa": {
         "explanation": (
@@ -264,6 +282,23 @@ TOPIC_TEACHING: Dict[str, Dict[str, Any]] = {
         "signals_strong": ("legenda", "título", "titulo", "escala", "orient", "rosa", "símbol", "simbol", "norte"),
         "signals_partial": ("elemento", "mapa", "ler", "interpret"),
         "follow_up": "Qual elemento você consultaria primeiro para saber o que uma cor representa?",
+        "follow_up_checks": [
+            {
+                "match": "cor representa",
+                "accept_keywords": ("legenda",),
+                "reject_keywords": (
+                    "titulo", "título", "escala", "orientacao", "orientação",
+                    "rosa dos ventos", "bússola", "bussola",
+                ),
+                "correct_msg": (
+                    "Exato: a **legenda** explica o significado das **cores** e **símbolos** do mapa."
+                ),
+                "wrong_msg": (
+                    "Para saber o que uma **cor** representa, consulte a **legenda** — "
+                    "é ela que traduz símbolos e cores."
+                ),
+            },
+        ],
     },
     "escala_grafica": {
         "explanation": (
@@ -272,9 +307,23 @@ TOPIC_TEACHING: Dict[str, Dict[str, Any]] = {
             "e compara com o segmento para estimar a distância no terreno. "
             "A **razão** entre mapa e realidade permanece a mesma em qualquer parte do mapa."
         ),
-        "signals_strong": ("segmento", "reta", "cm", "metro", "quilô", "quilo", "propor", "distân", "distanc", "razão", "razao"),
-        "signals_partial": ("escala", "mapa", "real", "medir"),
+        "signals_strong": ("segmento", "reta", "propor", "distân", "distanc", "razão", "razao", "equival"),
+        "signals_partial": ("escala", "mapa", "real", "medir", "cm", "metro", "quilô", "quilo"),
         "follow_up": "Se 2 cm no mapa equivalem a 1 km, quantos metros reais correspondem a 4 cm?",
+        "follow_up_checks": [
+            {
+                "match": "4 cm",
+                "accept": [
+                    {"value": 2000, "units": ("m", "metro", "metros")},
+                    {"value": 2, "units": ("km", "quilomet", "quilôm")},
+                ],
+                "correct_msg": "4 cm correspondem ao dobro de 2 cm: **2 km** ou **2000 m**.",
+                "wrong_msg": (
+                    "Se 2 cm = 1 km, então 4 cm = 2 × 1 km = **2000 m**. "
+                    "Dobre a medida no mapa e a distância real também dobra."
+                ),
+            },
+        ],
     },
     "escala_numerica": {
         "explanation": (
@@ -283,9 +332,28 @@ TOPIC_TEACHING: Dict[str, Dict[str, Any]] = {
             "Para converter: multiplique a medida do mapa pelo denominador, sempre com as "
             "**mesmas unidades**."
         ),
-        "signals_strong": ("50.000", "50000", "1:", "multiplic", "razão", "razao", "500", "centímetro", "centimetro"),
-        "signals_partial": ("escala", "numéric", "numeric", "converter", "cm"),
+        "signals_strong": (
+            "50.000", "50000", "1:50", "multiplic", "denominador", "propor",
+            "500 m", "500m", "500 metros", "50000 cm", "50 mil",
+        ),
+        "signals_partial": ("escala", "numéric", "numeric", "converter", "cm", "razão", "razao"),
         "follow_up": "Em 1:50.000, quantos metros reais correspondem a 3 cm no mapa?",
+        "follow_up_checks": [
+            {
+                "match": "3 cm",
+                "accept": [
+                    {"value": 1500, "units": ("m", "metro", "metros")},
+                    {"value": 1.5, "units": ("km", "quilomet", "quilôm")},
+                ],
+                "correct_msg": (
+                    "3 cm no mapa × 500 m por cm = **1500 m** (ou **1,5 km**) na escala 1:50.000."
+                ),
+                "wrong_msg": (
+                    "Revise: em 1:50.000 cada **1 cm** vale **500 m** no terreno. "
+                    "Para **3 cm**, multiplique: 3 × 500 = **1500 m**."
+                ),
+            },
+        ],
     },
     "calculo_escala": {
         "explanation": (
@@ -456,12 +524,12 @@ def _format_diagnostic_options(options: List[str]) -> Text:
 def _emit_diagnostic_question(
     dispatcher: CollectingDispatcher,
     index: int,
+    options: List[str],
 ) -> Text:
     """Emite payload JSON e texto da pergunta diagnóstica no índice dado."""
     q = DIAGNOSTIC_QUESTIONS[index]
     topic = DIAGNOSTIC_QUESTION_TOPICS[index]
     topic_label = TOPIC_LABELS.get(topic, topic)
-    options = [o.strip() for o in q["options"].split(" | ")]
 
     dispatcher.utter_message(
         json_message={
@@ -525,6 +593,13 @@ TOPIC_FOLLOW_UPS: Dict[str, str] = {
 }
 
 
+def _signal_matches(normalized: Text, signal: Text) -> bool:
+    """Evita falso positivo (ex.: '500' dentro de '1500')."""
+    if re.fullmatch(r"[\d.:]+", signal):
+        return re.search(rf"(?<!\d){re.escape(signal)}(?!\d)", normalized) is not None
+    return signal in normalized
+
+
 def _is_uncertainty_message(text: Text) -> bool:
     normalized = _normalize_text(text)
     return any(phrase in normalized for phrase in UNCERTAINTY_PHRASES)
@@ -533,15 +608,35 @@ def _is_uncertainty_message(text: Text) -> bool:
 def _reflection_quality(topic: Text, user_text: Text) -> Text:
     teaching = TOPIC_TEACHING.get(topic, {})
     normalized = _normalize_text(user_text)
-    if any(signal in normalized for signal in teaching.get("signals_incorrect", ())):
+    if any(_signal_matches(normalized, signal) for signal in teaching.get("signals_incorrect", ())):
         return "misconception"
     if len(normalized) < 12:
         return "weak"
-    if any(signal in normalized for signal in teaching.get("signals_strong", ())):
+    strong_hits = sum(
+        1 for signal in teaching.get("signals_strong", ())
+        if _signal_matches(normalized, signal)
+    )
+    partial_hits = sum(
+        1 for signal in teaching.get("signals_partial", ())
+        if _signal_matches(normalized, signal)
+    )
+    if strong_hits >= 2 or (strong_hits >= 1 and len(normalized.split()) >= 10):
         return "strong"
-    if any(signal in normalized for signal in teaching.get("signals_partial", ())):
+    if strong_hits >= 1 or partial_hits >= 2:
+        return "partial"
+    if partial_hits >= 1:
         return "partial"
     return "weak"
+
+
+def _reflection_opener(label: Text, quality: Text) -> Text:
+    if quality == "strong":
+        return f"Boa leitura do conceito em **{label}**!"
+    if quality == "partial":
+        return f"Você tocou em pontos importantes de **{label}**."
+    if quality == "misconception":
+        return f"Boa tentativa em **{label}** — vamos corrigir um detalhe importante."
+    return f"Vamos organizar o raciocínio sobre **{label}**."
 
 
 def _build_reflection_bridge(topic: Text, user_text: Text, quality: Text) -> Text:
@@ -549,7 +644,7 @@ def _build_reflection_bridge(topic: Text, user_text: Text, quality: Text) -> Tex
     if quality == "misconception":
         return (
             f"Você disse: _{snippet}_\n\n"
-            "Vale a pena ajustar um ponto: sua ideia mistura **norte magnético** com **sul verdadeiro**, "
+            "Vale ajustar um ponto: sua ideia mistura **norte magnético** com **sul verdadeiro**, "
             "que são referências diferentes. Veja a explicação abaixo."
         )
     if quality == "strong":
@@ -568,6 +663,157 @@ def _build_reflection_bridge(topic: Text, user_text: Text, quality: Text) -> Tex
     )
 
 
+def _extract_numeric_answers(text: Text) -> List[Tuple[float, Text | None]]:
+    normalized = _normalize_text(text)
+    found: List[Tuple[float, Text | None]] = []
+    pattern = re.compile(
+        r"(\d+(?:[.,]\d+)?)\s*(km|quilomet\w*|m\b|metros?|cm|centimet\w*)?",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(normalized):
+        raw_val = match.group(1).replace(",", ".")
+        try:
+            value = float(raw_val)
+        except ValueError:
+            continue
+        unit = (match.group(2) or "").strip().lower() or None
+        found.append((value, unit))
+    return found
+
+
+def _numeric_answer_matches(
+    value: float,
+    unit: Text | None,
+    spec: Dict[str, Any],
+) -> bool:
+    expected = spec["value"]
+    units = spec.get("units", ())
+    if unit:
+        if not any(u in unit for u in units):
+            return False
+    return abs(value - expected) <= max(0.01 * expected, 0.5)
+
+
+def _evaluate_text_followup(normalized: Text, check: Dict[str, Any]) -> bool | None:
+    """Avalia resposta textual. True=correta, False=incorreta, None=não aplicável."""
+    accept = check.get("accept_keywords", ())
+    reject = check.get("reject_keywords", ())
+    if not accept:
+        return None
+
+    has_accept = any(keyword in normalized for keyword in accept)
+    has_reject = bool(reject) and any(keyword in normalized for keyword in reject)
+
+    if has_accept and not has_reject:
+        return True
+    if has_reject and not has_accept:
+        return False
+    if has_accept and has_reject:
+        return None
+    if reject and has_reject:
+        return False
+    return False
+
+
+def _evaluate_followup_answer(topic: Text, follow_up: Text, user_text: Text) -> Dict[str, Any]:
+    teaching = TOPIC_TEACHING.get(topic, {})
+    checks = teaching.get("follow_up_checks", [])
+    normalized = _normalize_text(user_text)
+    numbers = _extract_numeric_answers(user_text)
+
+    for check in checks:
+        if check.get("match", "").lower() not in follow_up.lower():
+            continue
+
+        if check.get("accept_keywords"):
+            text_result = _evaluate_text_followup(normalized, check)
+            if text_result is True:
+                return {
+                    "correct": True,
+                    "message": check.get("correct_msg", "Resposta correta."),
+                    "quality": "followup_correct",
+                }
+            if text_result is False:
+                return {
+                    "correct": False,
+                    "message": check.get(
+                        "wrong_msg",
+                        "Revise com calma — repense o conceito central do tema.",
+                    ),
+                    "quality": "followup_wrong",
+                }
+
+        if check.get("accept"):
+            for spec in check.get("accept", ()):
+                for value, unit in numbers:
+                    if _numeric_answer_matches(value, unit, spec):
+                        return {
+                            "correct": True,
+                            "message": check.get("correct_msg", "Seu cálculo está certo."),
+                            "quality": "followup_correct",
+                        }
+            if numbers or not check.get("accept_keywords"):
+                return {
+                    "correct": False,
+                    "message": check.get(
+                        "wrong_msg",
+                        "Revise o cálculo com calma — compare mapa e terreno usando a mesma escala.",
+                    ),
+                    "quality": "followup_wrong",
+                }
+
+    return {
+        "correct": None,
+        "message": "Registrei sua resposta.",
+        "quality": "followup_neutral",
+    }
+
+
+def _emit_followup_feedback(
+    dispatcher: CollectingDispatcher,
+    tracer: CartographyKnowledgeTracer,
+    topic: Text,
+    user_text: Text,
+    follow_up: Text,
+) -> Dict[str, Any]:
+    label = TOPIC_LABELS.get(topic, topic)
+    evaluation = _evaluate_followup_answer(topic, follow_up, user_text)
+    is_correct = evaluation["correct"]
+
+    if is_correct is True:
+        opener = f"**Correto!** {evaluation['message']}"
+        closing = (
+            "Quer **aprofundar neste tema** com outra pergunta ou **estudar outro tópico**? "
+            "Diga por exemplo: *quero estudar coordenadas*."
+        )
+    elif is_correct is False:
+        opener = f"**Ainda não é isso.** {evaluation['message']}"
+        closing = (
+            "Tente responder de novo com suas palavras ou diga **entendi** se preferir seguir adiante."
+        )
+    else:
+        opener = f"Entendi sua resposta sobre **{label}**."
+        closing = "Quer **estudar outro tópico** ou continuar neste?"
+
+    dispatcher.utter_message(text=f"{opener}\n\n{closing}")
+
+    dispatcher.utter_message(
+        json_message={
+            "study_feedback": {
+                "kind": "followup",
+                "topic": topic,
+                "topicLabel": label,
+                "userAnswer": user_text,
+                "quality": evaluation["quality"],
+                "correct": is_correct,
+                "followUpQuestion": follow_up,
+            }
+        }
+    )
+
+    return evaluation
+
+
 def _emit_study_deepening(
     dispatcher: CollectingDispatcher,
     tracer: CartographyKnowledgeTracer,
@@ -575,7 +821,7 @@ def _emit_study_deepening(
     user_text: Text,
     *,
     needs_help: bool = False,
-) -> Text:
+) -> Dict[str, Any]:
     """Responde à opinião do aluno com explicação didática conectada ao que ele disse."""
     teaching = TOPIC_TEACHING.get(topic, {})
     lesson = TOPIC_LESSONS.get(topic, {})
@@ -589,14 +835,7 @@ def _emit_study_deepening(
         bridge = "Não precisa ter respondido certo antes; o importante é compreender o conceito."
     else:
         quality = _reflection_quality(topic, user_text)
-        if quality == "strong":
-            opener = f"Ótima reflexão sobre **{label}**!"
-        elif quality == "partial":
-            opener = f"Boa reflexão sobre **{label}**!"
-        elif quality == "misconception":
-            opener = f"Boa tentativa em **{label}** — vamos corrigir um detalhe importante."
-        else:
-            opener = f"Obrigado por compartilhar sua opinião sobre **{label}**!"
+        opener = _reflection_opener(label, quality)
         bridge = _build_reflection_bridge(topic, user_text, quality)
 
     dispatcher.utter_message(text=f"{opener}\n\n{bridge}")
@@ -605,7 +844,7 @@ def _emit_study_deepening(
         dispatcher.utter_message(
             text=(
                 f"**Para fixar:** {follow_up}\n\n"
-                "Quando quiser seguir, diga **entendi** ou **quero estudar outro tema**."
+                f"{_followup_prompt_hint(topic)}"
             )
         )
     else:
@@ -616,6 +855,7 @@ def _emit_study_deepening(
     dispatcher.utter_message(
         json_message={
             "study_feedback": {
+                "kind": "reflection",
                 "topic": topic,
                 "topicLabel": label,
                 "userReflection": user_text if not needs_help else None,
@@ -626,51 +866,205 @@ def _emit_study_deepening(
         }
     )
 
-    return quality
+    return {"quality": quality, "follow_up": follow_up if follow_up else None}
 
 
-def _resolve_diagnostic_selection(slot_value: Any, index: int) -> Text | None:
-    """Resolve letra (A–D) ou texto para a opção escolhida."""
+def _load_diagnostic_layout(tracker: Tracker) -> Dict[str, List[str]]:
+    raw = tracker.get_slot(SLOT_DIAGNOSTIC_LAYOUT)
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+
+
+def _shuffle_diagnostic_options(index: int, sender_id: Text) -> List[str]:
+    options = [o.strip() for o in DIAGNOSTIC_QUESTIONS[index]["options"].split(" | ")]
+    rng = random.Random(hash(f"{sender_id}:{index}") & 0xFFFFFFFF)
+    shuffled = options[:]
+    rng.shuffle(shuffled)
+    return shuffled
+
+
+def _diagnostic_options_for_index(
+    tracker: Tracker,
+    index: int,
+) -> Tuple[List[str], Dict[str, List[str]]]:
+    layout = _load_diagnostic_layout(tracker)
+    key = str(index)
+    if key not in layout:
+        layout[key] = _shuffle_diagnostic_options(index, tracker.sender_id or "")
+    return layout[key], layout
+
+
+def _parse_diagnostic_selection(
+    slot_value: Any,
+    index: int,
+    options: List[str] | None = None,
+) -> Text | None:
+    """Resolve letra (A–D), formato 'A) texto' ou texto da opção."""
     if index >= len(DIAGNOSTIC_QUESTIONS):
         return None
-    options = [o.strip() for o in DIAGNOSTIC_QUESTIONS[index]["options"].split(" | ")]
-    normalized = str(slot_value).strip().lower()
+    if options is None:
+        options = [o.strip() for o in DIAGNOSTIC_QUESTIONS[index]["options"].split(" | ")]
+    raw = str(slot_value).strip()
+    normalized = raw.lower()
+
     for opt in options:
         if normalized == opt.lower():
             return opt
-    letters = "abcd"
-    if len(normalized) == 1 and normalized in letters:
-        letter_index = letters.index(normalized)
+
+    letter_match = re.match(r"^([a-dA-D])\)\s*(.*)$", raw)
+    if letter_match:
+        letter_index = ord(letter_match.group(1).lower()) - ord("a")
+        rest = letter_match.group(2).strip().lower()
+        if 0 <= letter_index < len(options):
+            if not rest or rest == options[letter_index].lower():
+                return options[letter_index]
+            for opt in options:
+                if rest == opt.lower():
+                    return opt
+
+    if len(normalized) == 1 and normalized in "abcd":
+        letter_index = ord(normalized) - ord("a")
         if letter_index < len(options):
             return options[letter_index]
+
     return None
 
 
-def _is_diagnostic_correct(slot_value: Any, index: int) -> bool:
-    selected = _resolve_diagnostic_selection(slot_value, index)
+def _is_diagnostic_correct(
+    slot_value: Any,
+    index: int,
+    options: List[str] | None = None,
+) -> bool:
+    selected = _parse_diagnostic_selection(slot_value, index, options)
     if not selected:
         return False
     return selected == DIAGNOSTIC_QUESTIONS[index]["correct"]
 
 
-def _matches_diagnostic_answer(slot_value: Any, index: int) -> bool:
+def _matches_diagnostic_answer(
+    slot_value: Any,
+    index: int,
+    options: List[str] | None = None,
+) -> bool:
     """Verifica se o texto corresponde à resposta, letra ou opção da pergunta atual."""
-    if index >= len(DIAGNOSTIC_QUESTIONS):
-        return False
-    q = DIAGNOSTIC_QUESTIONS[index]
-    options = [o.strip() for o in q["options"].split(" | ")]
-    normalized = str(slot_value).strip().lower()
-    if normalized == q["correct"].lower():
-        return True
-    option_map = {o.strip().lower(): o for o in options}
-    if normalized in option_map:
-        return True
-    letters = "abcd"
-    if len(normalized) == 1 and normalized in letters:
-        letter_index = letters.index(normalized)
-        if letter_index < len(options):
+    return _parse_diagnostic_selection(slot_value, index, options) is not None
+
+
+def _wants_to_start_study(text: Text) -> bool:
+    normalized = _normalize_text(text)
+    return any(
+        phrase in normalized
+        for phrase in (
+            "vamos começar",
+            "começar por",
+            "comece por",
+            "quero estudar",
+            "vamos estudar",
+            "quero aprender",
+            "iniciar estudo",
+            "começar a estudar",
+        )
+    )
+
+
+def _resolve_study_topic(tracker: Tracker, tracer: CartographyKnowledgeTracer) -> Text | None:
+    topic = (
+        tracker.get_slot(SLOT_ACTIVE_STUDY_TOPIC)
+        or _resolve_topic_from_tracker(tracker, tracer)
+        or tracker.get_slot(SLOT_LAST_TOPIC)
+    )
+    if topic and topic in TOPICS:
+        return topic
+    return None
+
+
+NAVIGATION_INTENTS = frozenset({
+    "ask_cartography_help",
+    "ask_what_to_do",
+    "greet",
+    "goodbye",
+    "start_diagnostic",
+})
+
+
+def _clear_followup_slots() -> List[SlotSet]:
+    return [
+        SlotSet(SLOT_STUDY_FOLLOWUP_PENDING, False),
+        SlotSet(SLOT_STUDY_FOLLOWUP_QUESTION, None),
+    ]
+
+
+def _get_active_followup(tracker: Tracker, topic: Text) -> Text | None:
+    """Pergunta de fixação pendente — usa o texto salvo como fonte principal."""
+    question = tracker.get_slot(SLOT_STUDY_FOLLOWUP_QUESTION)
+    if question:
+        return question
+    if tracker.get_slot(SLOT_STUDY_FOLLOWUP_PENDING):
+        teaching = TOPIC_TEACHING.get(topic, {})
+        return teaching.get("follow_up") or TOPIC_FOLLOW_UPS.get(topic)
+    return None
+
+
+def _study_reflection_already_ran_after_last_user(tracker: Tracker) -> bool:
+    """Evita segunda execução no mesmo turno (RulePolicy + TEDPolicy)."""
+    for event in reversed(tracker.events):
+        if event.get("event") == "user":
+            break
+        if (
+            event.get("event") == "action"
+            and event.get("name") == "action_handle_study_reflection"
+        ):
             return True
     return False
+
+
+def _followup_prompt_hint(topic: Text) -> Text:
+    checks = TOPIC_TEACHING.get(topic, {}).get("follow_up_checks", ())
+    if any(check.get("accept_keywords") for check in checks):
+        return "Responda com uma palavra ou frase curta."
+    return "Responda com o resultado (número + unidade, se souber)."
+
+
+def _process_followup_response(
+    events: List[Any],
+    dispatcher: CollectingDispatcher,
+    tracer: CartographyKnowledgeTracer,
+    tracker: Tracker,
+    topic: Text,
+    user_text: Text,
+    follow_up: Text,
+) -> List[Any]:
+    evaluation = _emit_followup_feedback(dispatcher, tracer, topic, user_text, follow_up)
+    is_correct = evaluation.get("correct")
+    if is_correct is True:
+        tracer.update_from_interaction(topic=topic, correct=True)
+    elif is_correct is False:
+        tracer.update_from_interaction(topic=topic, correct=False)
+    _emit_cognitive_payload(
+        dispatcher,
+        tracer,
+        extra={
+            "event": "study_followup",
+            "topic": topic,
+            "correct": is_correct,
+            "quality": evaluation.get("quality"),
+        },
+    )
+    followup_events = [
+        _save_tracer(tracer),
+        SlotSet(SLOT_LAST_TOPIC, topic),
+        SlotSet(SLOT_PENDING_CORRECT, is_correct if is_correct is not None else None),
+        SlotSet(SLOT_STUDY_FOLLOWUP_PENDING, is_correct is not True),
+        SlotSet(
+            SLOT_STUDY_FOLLOWUP_QUESTION,
+            follow_up if is_correct is not True else None,
+        ),
+    ]
+    return events + followup_events
 
 
 class ActionGreet(Action):
@@ -819,8 +1213,12 @@ class ActionAskDiagnosticAnswer(Action):
             dispatcher.utter_message(response="utter_diagnostic_complete")
             return events
 
-        topic = _emit_diagnostic_question(dispatcher, index)
-        return events + [SlotSet(SLOT_LAST_TOPIC, topic)]
+        options, layout = _diagnostic_options_for_index(tracker, index)
+        topic = _emit_diagnostic_question(dispatcher, index, options)
+        return events + [
+            SlotSet(SLOT_LAST_TOPIC, topic),
+            SlotSet(SLOT_DIAGNOSTIC_LAYOUT, json.dumps(layout)),
+        ]
 
 
 class ActionStartDiagnostic(Action):
@@ -848,6 +1246,7 @@ class ActionStartDiagnostic(Action):
             SlotSet(SLOT_DIAGNOSTIC_INVITATION_PENDING, False),
             SlotSet(SLOT_DIAGNOSTIC_INDEX, 0),
             SlotSet("diagnostic_answers", "[]"),
+            SlotSet(SLOT_DIAGNOSTIC_LAYOUT, "{}"),
             ActiveLoop("diagnostic_form"),
         ]
 
@@ -916,22 +1315,27 @@ class ValidateDiagnosticForm(FormValidationAction):
 
         index = tracker.get_slot(SLOT_DIAGNOSTIC_INDEX)
         index = int(index) if index is not None else 0
-
         slot_text = slot_value if slot_value is not None else ""
+
+        if index >= len(DIAGNOSTIC_QUESTIONS):
+            return {"diagnostic_answer": slot_value}
+
+        options, layout = _diagnostic_options_for_index(tracker, index)
+
         if intent in (
             "ask_what_to_do",
             "choose_topic",
             "greet",
             "goodbye",
             "start_diagnostic",
-        ) and not _matches_diagnostic_answer(slot_text, index):
+        ) and not _matches_diagnostic_answer(slot_text, index, options):
             dispatcher.utter_message(
                 text=(
                     "Estamos no questionário diagnóstico — responda à pergunta acima "
                     "escolhendo uma das opções ou digitando a resposta."
                 )
             )
-            return {"diagnostic_answer": None}
+            return {"diagnostic_answer": None, SLOT_DIAGNOSTIC_LAYOUT: json.dumps(layout)}
 
         # "sim" / start_diagnostic ativam o form — não são respostas à pergunta 1.
         if tracker.get_slot(SLOT_DIAGNOSTIC_INVITATION_PENDING) or intent in (
@@ -941,12 +1345,10 @@ class ValidateDiagnosticForm(FormValidationAction):
             return {
                 SLOT_DIAGNOSTIC_INVITATION_PENDING: False,
                 "diagnostic_answer": None,
+                SLOT_DIAGNOSTIC_LAYOUT: json.dumps(layout),
             }
 
-        if index >= len(DIAGNOSTIC_QUESTIONS):
-            return {"diagnostic_answer": slot_value}
-
-        is_correct = _is_diagnostic_correct(slot_value, index)
+        is_correct = _is_diagnostic_correct(slot_value, index, options)
 
         answers_raw = tracker.get_slot("diagnostic_answers") or "[]"
         try:
@@ -964,6 +1366,7 @@ class ValidateDiagnosticForm(FormValidationAction):
             "diagnostic_answers": json.dumps(answers),
             SLOT_DIAGNOSTIC_INDEX: next_index,
             SLOT_PENDING_CORRECT: is_correct,
+            SLOT_DIAGNOSTIC_LAYOUT: json.dumps(layout),
         }
 
         if next_index < len(DIAGNOSTIC_QUESTIONS):
@@ -1052,6 +1455,32 @@ class ActionSuggestNextSteps(Action):
         ]
 
 
+class ActionHandleFallback(Action):
+    """Encaminha fallback para estudo/fixação em vez de resposta genérica."""
+
+    def name(self) -> Text:
+        return "action_handle_fallback"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
+    ) -> List[Any]:
+        if (
+            tracker.get_slot(SLOT_STUDY_FOLLOWUP_PENDING)
+            or tracker.get_slot(SLOT_STUDY_FOLLOWUP_QUESTION)
+            or tracker.get_slot(SLOT_ACTIVE_STUDY_TOPIC)
+        ):
+            return ActionHandleStudyReflection().run(dispatcher, tracker, domain)
+
+        if tracker.get_slot("diagnostic_completed"):
+            return ActionExplainWhatToDo().run(dispatcher, tracker, domain)
+
+        dispatcher.utter_message(response="utter_default")
+        return []
+
+
 class ActionExplainWhatToDo(Action):
     """Explica como usar o tutor após o diagnóstico (dúvidas de navegação)."""
 
@@ -1064,11 +1493,19 @@ class ActionExplainWhatToDo(Action):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> List[Any]:
-        if tracker.get_slot(SLOT_ACTIVE_STUDY_TOPIC):
+        if (
+            tracker.get_slot(SLOT_ACTIVE_STUDY_TOPIC)
+            or tracker.get_slot(SLOT_STUDY_FOLLOWUP_PENDING)
+            or tracker.get_slot(SLOT_STUDY_FOLLOWUP_QUESTION)
+        ):
             return ActionHandleStudyReflection().run(dispatcher, tracker, domain)
 
         tracer = _load_tracer(tracker)
-        if _resolve_topic_from_tracker(tracker, tracer):
+        user_text = (tracker.latest_message.get("text") or "").strip()
+        resolved = _resolve_topic_from_tracker(tracker, tracer)
+        if resolved and _wants_to_start_study(user_text):
+            return ActionStartTopicStudy().run(dispatcher, tracker, domain)
+        if resolved:
             return ActionHandleStudyReflection().run(dispatcher, tracker, domain)
 
         if not tracker.get_slot("diagnostic_completed"):
@@ -1113,6 +1550,13 @@ class ActionStartTopicStudy(Action):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> List[Any]:
+        if tracker.get_slot(SLOT_STUDY_FOLLOWUP_QUESTION) or tracker.get_slot(
+            SLOT_STUDY_FOLLOWUP_PENDING
+        ):
+            user_text = (tracker.latest_message.get("text") or "").strip()
+            if not _wants_to_start_study(user_text):
+                return ActionHandleStudyReflection().run(dispatcher, tracker, domain)
+
         if not tracker.get_slot("diagnostic_completed"):
             dispatcher.utter_message(
                 text=(
@@ -1149,6 +1593,8 @@ class ActionStartTopicStudy(Action):
             SlotSet(SLOT_LAST_TOPIC, topic),
             SlotSet(SLOT_ACTIVE_STUDY_TOPIC, topic),
             SlotSet(SLOT_STUDY_SUGGESTION_PENDING, False),
+            SlotSet(SLOT_STUDY_FOLLOWUP_PENDING, False),
+            SlotSet(SLOT_STUDY_FOLLOWUP_QUESTION, None),
             ActiveLoop(None),
         ]
         return events
@@ -1166,6 +1612,10 @@ class ActionTopicHelp(Action):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> List[Any]:
+        user_text = (tracker.latest_message.get("text") or "").strip()
+        if _wants_to_start_study(user_text):
+            return ActionStartTopicStudy().run(dispatcher, tracker, domain)
+
         tracer = _load_tracer(tracker)
         topic = (
             _resolve_topic_from_tracker(tracker, tracer)
@@ -1185,12 +1635,16 @@ class ActionTopicHelp(Action):
         dispatcher.utter_message(
             text=(
                 f"Sobre **{label}**: {lesson['intro']}\n\n"
-                f"Em vez de dar a resposta direta, pense nesta pergunta: {lesson['prompt']}\n\n"
-                "Quer **começar a estudar** esse tema agora? Diga sim ou *quero estudar* + o tema."
+                f"Em vez de dar a resposta direta, pense nesta pergunta: {lesson['prompt']}"
             )
         )
 
-        return [SlotSet(SLOT_LAST_TOPIC, topic)]
+        return [
+            SlotSet(SLOT_LAST_TOPIC, topic),
+            SlotSet(SLOT_ACTIVE_STUDY_TOPIC, topic),
+            SlotSet(SLOT_STUDY_FOLLOWUP_PENDING, False),
+            SlotSet(SLOT_STUDY_FOLLOWUP_QUESTION, None),
+        ]
 
 
 class ActionHandleStudyReflection(Action):
@@ -1206,11 +1660,12 @@ class ActionHandleStudyReflection(Action):
         domain: Dict[Text, Any],
     ) -> List[Any]:
         events = _close_stale_diagnostic_loop(tracker)
+        if _study_reflection_already_ran_after_last_user(tracker):
+            return events
+
         tracer = _load_tracer(tracker)
-        topic = tracker.get_slot(SLOT_ACTIVE_STUDY_TOPIC) or _resolve_topic_from_tracker(
-            tracker, tracer
-        )
-        if not topic or topic not in TOPICS:
+        topic = _resolve_study_topic(tracker, tracer)
+        if not topic:
             dispatcher.utter_message(
                 text="Não identifiquei em qual tema estamos. Diga **quero estudar** + o tema."
             )
@@ -1222,6 +1677,26 @@ class ActionHandleStudyReflection(Action):
         intent = tracker.latest_message.get("intent", {}).get("name", "")
         user_text = (tracker.latest_message.get("text") or "").strip()
         label = TOPIC_LABELS.get(topic, topic)
+
+        follow_up_q = _get_active_followup(tracker, topic)
+        explicit_topic_change = _wants_to_start_study(user_text)
+
+        if follow_up_q:
+            if intent == "ask_cartography_help":
+                return events + _clear_followup_slots() + ActionTopicHelp().run(
+                    dispatcher, tracker, domain
+                )
+            if intent == "choose_topic" and explicit_topic_change:
+                return events + _clear_followup_slots() + ActionStartTopicStudy().run(
+                    dispatcher, tracker, domain
+                )
+            if intent in NAVIGATION_INTENTS or intent == "ask_what_to_do":
+                return events + _clear_followup_slots() + ActionExplainWhatToDo().run(
+                    dispatcher, tracker, domain
+                )
+            return _process_followup_response(
+                events, dispatcher, tracer, tracker, topic, user_text, follow_up_q
+            )
 
         if intent in ("affirm", "inform_correct_answer"):
             tracer.update_from_interaction(topic=topic, correct=True)
@@ -1244,7 +1719,7 @@ class ActionHandleStudyReflection(Action):
                 _save_tracer(tracer),
                 SlotSet(SLOT_LAST_TOPIC, topic),
                 SlotSet(SLOT_PENDING_CORRECT, None),
-            ]
+            ] + _clear_followup_slots()
 
         if intent == "deny":
             mentioned = _resolve_topic_from_tracker(tracker, tracer)
@@ -1252,9 +1727,10 @@ class ActionHandleStudyReflection(Action):
                 return ActionTopicHelp().run(dispatcher, tracker, domain)
 
             if _is_uncertainty_message(user_text):
-                quality = _emit_study_deepening(
+                deepening = _emit_study_deepening(
                     dispatcher, tracer, topic, user_text, needs_help=True
                 )
+                quality = deepening["quality"]
                 tracer.update_from_interaction(topic=topic, correct=False)
                 _emit_cognitive_payload(
                     dispatcher,
@@ -1265,10 +1741,13 @@ class ActionHandleStudyReflection(Action):
                         "quality": quality,
                     },
                 )
+                follow_up = deepening.get("follow_up")
                 return events + [
                     _save_tracer(tracer),
                     SlotSet(SLOT_LAST_TOPIC, topic),
                     SlotSet(SLOT_PENDING_CORRECT, None),
+                    SlotSet(SLOT_STUDY_FOLLOWUP_PENDING, bool(follow_up)),
+                    SlotSet(SLOT_STUDY_FOLLOWUP_QUESTION, follow_up),
                 ]
 
             lesson = TOPIC_LESSONS.get(topic, {})
@@ -1282,7 +1761,9 @@ class ActionHandleStudyReflection(Action):
             )
             return events + [SlotSet(SLOT_LAST_TOPIC, topic)]
 
-        quality = _emit_study_deepening(dispatcher, tracer, topic, user_text)
+        deepening = _emit_study_deepening(dispatcher, tracer, topic, user_text)
+        quality = deepening["quality"]
+        follow_up = deepening.get("follow_up")
         learned_well = quality in ("strong", "partial")
         tracer.update_from_interaction(topic=topic, correct=learned_well)
         _emit_cognitive_payload(
@@ -1300,4 +1781,6 @@ class ActionHandleStudyReflection(Action):
             _save_tracer(tracer),
             SlotSet(SLOT_LAST_TOPIC, topic),
             SlotSet(SLOT_PENDING_CORRECT, learned_well),
+            SlotSet(SLOT_STUDY_FOLLOWUP_PENDING, bool(follow_up)),
+            SlotSet(SLOT_STUDY_FOLLOWUP_QUESTION, follow_up),
         ]

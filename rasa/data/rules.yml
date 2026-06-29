@@ -1,6 +1,46 @@
 version: "3.1"
 
 rules:
+  - rule: Ajuda sobre outro tópico durante estudo
+    condition:
+      - slot_was_set:
+          - active_study_topic
+    steps:
+      - intent: ask_cartography_help
+      - action: action_topic_help
+
+  - rule: Trocar de tópico durante estudo
+    condition:
+      - slot_was_set:
+          - active_study_topic
+    steps:
+      - intent: choose_topic
+      - action: action_start_topic_study
+
+  - rule: Resposta à fixação durante estudo
+    condition:
+      - slot_was_set:
+          - study_followup_pending: true
+    steps:
+      - intent: inform_followup_answer
+      - action: action_handle_study_reflection
+
+  - rule: Resposta à fixação (reflexão curta)
+    condition:
+      - slot_was_set:
+          - study_followup_pending: true
+    steps:
+      - intent: inform_study_reflection
+      - action: action_handle_study_reflection
+
+  - rule: Resposta à fixação (texto livre)
+    condition:
+      - slot_was_set:
+          - study_followup_pending: true
+    steps:
+      - intent: nlu_fallback
+      - action: action_handle_study_reflection
+
   - rule: Saudação
     steps:
       - intent: greet
@@ -58,10 +98,12 @@ rules:
       - action: action_calibrate_from_diagnostic
       - action: action_suggest_next_steps
 
-  - rule: Resposta reflexiva durante estudo ativo
+  - rule: Resposta reflexiva de estudo
     condition:
       - slot_was_set:
           - active_study_topic
+      - slot_was_set:
+          - study_followup_pending: false
     steps:
       - intent: inform_study_reflection
       - action: action_handle_study_reflection
@@ -70,6 +112,8 @@ rules:
     condition:
       - slot_was_set:
           - active_study_topic
+      - slot_was_set:
+          - study_followup_pending: false
     steps:
       - intent: nlu_fallback
       - action: action_handle_study_reflection
@@ -151,23 +195,15 @@ rules:
       - action: action_update_mastery
       - action: action_send_cognitive_state
 
-  - rule: Reflexão sobre tópico após diagnóstico (sem estudo ativo)
-    condition:
-      - slot_was_set:
-          - diagnostic_completed: true
-    steps:
-      - intent: inform_study_reflection
-      - action: action_handle_study_reflection
-
   - rule: Fallback NLU após diagnóstico
     condition:
       - slot_was_set:
           - diagnostic_completed: true
     steps:
       - intent: nlu_fallback
-      - action: action_explain_what_to_do
+      - action: action_handle_fallback
 
   - rule: Fallback NLU
     steps:
       - intent: nlu_fallback
-      - action: utter_default
+      - action: action_handle_fallback
