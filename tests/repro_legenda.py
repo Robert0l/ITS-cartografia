@@ -33,9 +33,18 @@ def main() -> None:
     assert fb is not None, "expected study_feedback for Legenda"
     assert fb.get("kind") == "followup", f"expected followup, got {fb.get('kind')}"
     assert fb.get("correct") is True, "Legenda should be accepted"
-    assert has_text_containing(msgs, "Correto"), "expected Correto message"
+    assert has_text_containing(msgs, "concluiu o estudo"), "expected topic completion message"
+    assert has_text_containing(msgs, "Recomendo estudar"), "expected next topic suggestion"
     assert not has_text_containing(msgs, "organizar"), "should not restart reflection loop"
+    assert not has_text_containing(msgs, "palavra ou frase curta"), "should not show follow-up hint"
     print("OK: legenda follow-up advances correctly")
+
+    msgs = client.send(sender, "não sei")
+    assert has_text_containing(msgs, "Próximo passo") or has_text_containing(
+        msgs, "Recomendo estudar"
+    ), "expected navigation help after nao sei, not reflection loop"
+    assert not has_text_containing(msgs, "Para fixar"), "should not re-ask follow-up question"
+    print("OK: nao sei after completion suggests next topic")
 
 
 if __name__ == "__main__":

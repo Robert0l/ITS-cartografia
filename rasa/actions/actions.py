@@ -460,6 +460,62 @@ def _format_topic_menu(tracer: CartographyKnowledgeTracer) -> Text:
     return "\n".join(lines)
 
 
+def _recommend_next_focus(
+    tracer: CartographyKnowledgeTracer,
+    exclude: Text | None = None,
+) -> Text:
+    mastery = tracer.get_mastery()
+    candidates = [t for t in TOPICS if t != exclude] or list(TOPICS)
+    next_topic = min(candidates, key=lambda t: mastery.get(t, 0.0))
+    tracer.set_focus(next_topic)
+    return next_topic
+
+
+def _emit_study_topic_completion(
+    dispatcher: CollectingDispatcher,
+    tracer: CartographyKnowledgeTracer,
+    completed_topic: Text,
+    *,
+    success_detail: Text = "",
+) -> Text:
+    """Encerra o tópico atual e sugere o próximo a estudar."""
+    completed_label = TOPIC_LABELS.get(completed_topic, completed_topic)
+    mastery_pct = tracer.get_mastery().get(completed_topic, 0.0)
+    next_topic = _recommend_next_focus(tracer, exclude=completed_topic)
+    next_label = TOPIC_LABELS.get(next_topic, next_topic)
+
+    detail = f"\n\n{success_detail}" if success_detail else ""
+    dispatcher.utter_message(
+        text=(
+            f"**Correto!**{detail}\n\n"
+            f"Você concluiu o estudo de **{completed_label}** "
+            f"(domínio estimado: {mastery_pct:.0f}%).\n\n"
+            f"Recomendo estudar **{next_label}** a seguir:\n\n"
+            f"{_format_topic_menu(tracer)}\n\n"
+            "**Qual o próximo tema que você deseja estudar?**"
+        )
+    )
+    _emit_cognitive_payload(
+        dispatcher,
+        tracer,
+        extra={
+            "event": "study_topic_completed",
+            "completedTopic": completed_topic,
+            "recommendedTopic": next_topic,
+        },
+    )
+    return next_topic
+
+
+def _study_session_complete(tracker: Tracker) -> bool:
+    """Tópico concluído — não há fixação pendente nem estudo ativo."""
+    return (
+        not tracker.get_slot(SLOT_ACTIVE_STUDY_TOPIC)
+        and not tracker.get_slot(SLOT_STUDY_FOLLOWUP_PENDING)
+        and not tracker.get_slot(SLOT_STUDY_FOLLOWUP_QUESTION)
+    )
+
+
 def _emit_study_lesson(
     dispatcher: CollectingDispatcher,
     tracer: CartographyKnowledgeTracer,
@@ -781,11 +837,8 @@ def _emit_followup_feedback(
     is_correct = evaluation["correct"]
 
     if is_correct is True:
-        opener = f"**Correto!** {evaluation['message']}"
-        closing = (
-            "Quer **aprofundar neste tema** com outra pergunta ou **estudar outro tópico**? "
-            "Diga por exemplo: *quero estudar coordenadas*."
-        )
+        opener = ""
+        closing = ""
     elif is_correct is False:
         opener = f"**Ainda não é isso.** {evaluation['message']}"
         closing = (
@@ -795,7 +848,10 @@ def _emit_followup_feedback(
         opener = f"Entendi sua resposta sobre **{label}**."
         closing = "Quer **estudar outro tópico** ou continuar neste?"
 
-    dispatcher.utter_message(text=f"{opener}\n\n{closing}")
+    if closing:
+        dispatcher.utter_message(text=f"{opener}\n\n{closing}")
+    elif opener:
+        dispatcher.utter_message(text=opener)
 
     dispatcher.utter_message(
         json_message={
@@ -841,12 +897,7 @@ def _emit_study_deepening(
     dispatcher.utter_message(text=f"{opener}\n\n{bridge}")
     dispatcher.utter_message(text=f"**Explicação:** {explanation}")
     if follow_up:
-        dispatcher.utter_message(
-            text=(
-                f"**Para fixar:** {follow_up}\n\n"
-                f"{_followup_prompt_hint(topic)}"
-            )
-        )
+        dispatcher.utter_message(text=f"**Para fixar:** {follow_up}")
     else:
         dispatcher.utter_message(
             text="Quando quiser seguir, diga **entendi** ou **quero estudar outro tema**."
@@ -1022,13 +1073,6 @@ def _study_reflection_already_ran_after_last_user(tracker: Tracker) -> bool:
     return False
 
 
-def _followup_prompt_hint(topic: Text) -> Text:
-    checks = TOPIC_TEACHING.get(topic, {}).get("follow_up_checks", ())
-    if any(check.get("accept_keywords") for check in checks):
-        return "Responda com uma palavra ou frase curta."
-    return "Responda com o resultado (número + unidade, se souber)."
-
-
 def _process_followup_response(
     events: List[Any],
     dispatcher: CollectingDispatcher,
@@ -1042,18 +1086,47 @@ def _process_followup_response(
     is_correct = evaluation.get("correct")
     if is_correct is True:
         tracer.update_from_interaction(topic=topic, correct=True)
+        _emit_study_topic_completion(
+            dispatcher,
+            tracer,
+            topic,
+            success_detail=evaluation.get("message", ""),
+        )
     elif is_correct is False:
         tracer.update_from_interaction(topic=topic, correct=False)
-    _emit_cognitive_payload(
-        dispatcher,
-        tracer,
-        extra={
-            "event": "study_followup",
-            "topic": topic,
-            "correct": is_correct,
-            "quality": evaluation.get("quality"),
-        },
-    )
+        _emit_cognitive_payload(
+            dispatcher,
+            tracer,
+            extra={
+                "event": "study_followup",
+                "topic": topic,
+                "correct": is_correct,
+                "quality": evaluation.get("quality"),
+            },
+        )
+    else:
+        _emit_cognitive_payload(
+            dispatcher,
+            tracer,
+            extra={
+                "event": "study_followup",
+                "topic": topic,
+                "correct": is_correct,
+                "quality": evaluation.get("quality"),
+            },
+        )
+
+    if is_correct is True:
+        return events + [
+            _save_tracer(tracer),
+            SlotSet(SLOT_LAST_TOPIC, topic),
+            SlotSet(SLOT_ACTIVE_STUDY_TOPIC, None),
+            SlotSet(SLOT_PENDING_CORRECT, None),
+            SlotSet(SLOT_STUDY_FOLLOWUP_PENDING, False),
+            SlotSet(SLOT_STUDY_FOLLOWUP_QUESTION, None),
+            SlotSet(SLOT_STUDY_SUGGESTION_PENDING, True),
+        ]
+
     followup_events = [
         _save_tracer(tracer),
         SlotSet(SLOT_LAST_TOPIC, topic),
@@ -1725,6 +1798,11 @@ class ActionHandleStudyReflection(Action):
             mentioned = _resolve_topic_from_tracker(tracker, tracer)
             if mentioned and mentioned in TOPIC_LESSONS and mentioned != topic:
                 return ActionTopicHelp().run(dispatcher, tracker, domain)
+
+            if _is_uncertainty_message(user_text) and _study_session_complete(tracker):
+                return events + _clear_followup_slots() + ActionExplainWhatToDo().run(
+                    dispatcher, tracker, domain
+                )
 
             if _is_uncertainty_message(user_text):
                 deepening = _emit_study_deepening(
